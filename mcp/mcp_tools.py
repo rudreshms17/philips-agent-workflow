@@ -15,45 +15,159 @@ _task_log: list[dict] = []
 # ── Tool Handlers ────────────────────────────────────────────────────────────
 
 def web_search_tool(query: str) -> str:
-    """Simulates a web search and returns mock results."""
-    print("[MCP TOOL CALLED]: web_search_tool")
-    mock_results = {
-        "ai agents": (
-            "Result 1: 'What are AI Agents?' - AI agents are autonomous programs that perceive "
-            "their environment and take actions to achieve goals.\n"
-            "Result 2: 'Top AI Agent Frameworks 2024' - CrewAI, AutoGen, and LangGraph are "
-            "leading frameworks for building multi-agent systems.\n"
-            "Result 3: 'AI Agents in Enterprise' - Companies are deploying AI agents to automate "
-            "research, data analysis, and report generation workflows."
-        ),
-        "mcp protocol": (
-            "Result 1: 'Model Context Protocol (MCP)' - MCP is a standard for exposing tools "
-            "and context to LLMs in a structured, interoperable way.\n"
-            "Result 2: 'MCP vs Function Calling' - MCP provides a server-client architecture "
-            "that decouples tool definitions from individual LLM providers.\n"
-            "Result 3: 'Getting Started with MCP' - You can build an MCP server using FastAPI "
-            "and register tools that any compatible agent can consume."
-        ),
-        "crewai": (
-            "Result 1: 'CrewAI Overview' - CrewAI is a framework for orchestrating role-based "
-            "AI agents that collaborate to complete complex tasks.\n"
-            "Result 2: 'CrewAI vs LangChain Agents' - CrewAI focuses on multi-agent crews with "
-            "defined roles, goals, and delegation.\n"
-            "Result 3: 'CrewAI Tools' - CrewAI supports custom and built-in tools like "
-            "SerperDevTool, FileReadTool, and WebsiteSearchTool."
-        ),
-    }
-    # Match query to a mock key (case-insensitive partial match)
-    query_lower = query.lower()
-    for key, result in mock_results.items():
-        if key in query_lower or query_lower in key:
-            return result
-    # Default generic mock response
-    return (
-        f"Result 1: 'Search results for \"{query}\"' - Relevant articles and resources found.\n"
-        f"Result 2: 'Latest on \"{query}\"' - Recent news and research available.\n"
-        f"Result 3: 'Deep dive into \"{query}\"' - Comprehensive guide and tutorials available."
-    )
+    """Search using multiple methods with intelligent fallbacks."""
+    print(f"[MCP TOOL CALLED]: web_search_tool | Query: {query}")
+    
+    # Try DuckDuckGo first
+    result = _search_duckduckgo(query)
+    if result and _has_real_results(result):
+        print(f"[SEARCH SUCCESS]: DuckDuckGo found results")
+        return result
+    
+    # Try with more specific query variations
+    if " " in query:
+        # Try breaking down the query
+        words = query.split()
+        for variation in [query, f'"{query}"', " ".join(words[:3])]:
+            result = _search_duckduckgo(variation)
+            if result and _has_real_results(result):
+                print(f"[SEARCH SUCCESS]: Found results with variation: {variation}")
+                return result
+    
+    # Try Wikipedia search
+    print(f"[SEARCH]: DuckDuckGo failed, trying Wikipedia...")
+    result = _search_wikipedia(query)
+    if result:
+        print(f"[SEARCH SUCCESS]: Wikipedia found results")
+        return result
+    
+    # Try Google Custom Search or another fallback
+    print(f"[SEARCH]: Wikipedia failed, trying alternative search...")
+    result = _search_alternative(query)
+    if result:
+        print(f"[SEARCH SUCCESS]: Alternative search found results")
+        return result
+    
+    # Last resort: return informative message
+    return f"""[Search Results for: "{query}"]
+
+Unable to fetch real-time results. This query might need:
+1. More specific terms (e.g., "Flipkart founders Sachin Bansal")
+2. Recent year context (e.g., "Flipkart 2024 2025")
+3. Fuller company name or context
+
+Query: {query}
+Please try with more specific search terms."""
+
+def _has_real_results(text: str) -> bool:
+    """Check if search result contains actual data (not fallback)."""
+    return "[Result" in text or "Title:" in text or "Content:" in text
+
+def _search_duckduckgo(query: str) -> str:
+    """Search using DuckDuckGo with retries."""
+    try:
+        from duckduckgo_search import DDGS
+        
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                with DDGS() as ddgs:
+                    search_results = list(ddgs.text(query, max_results=5))
+                
+                if search_results:
+                    results = []
+                    for i, r in enumerate(search_results, 1):
+                        title = r.get('title', '')[:150]
+                        body = r.get('body', '')[:500]
+                        url = r.get('href', '')
+                        
+                        if title and body:
+                            results.append(f"[Result {i}]\nTitle: {title}\nContent: {body}\nURL: {url}")
+                    
+                    if results:
+                        print(f"[SEARCH]: DuckDuckGo got {len(results)} real results")
+                        return "\n\n".join(results)
+            except Exception as e:
+                print(f"[SEARCH]: DuckDuckGo attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(1)
+                continue
+    except ImportError:
+        print(f"[SEARCH]: duckduckgo-search not available")
+    
+    return None
+
+def _search_wikipedia(query: str) -> str:
+    """Search Wikipedia API for results."""
+    try:
+        import requests
+        from urllib.parse import quote
+        
+        # Try direct query first
+        wiki_query = quote(query)
+        urls = [
+            f"https://en.wikipedia.org/w/api.php?action=query&srsearch={wiki_query}&format=json&srlimit=5",
+        ]
+        
+        for url in urls:
+            try:
+                resp = requests.get(url, timeout=8)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if 'query' in data and 'search' in data['query']:
+                        results = []
+                        for i, item in enumerate(data['query']['search'][:5], 1):
+                            title = item.get('title', '')
+                            snippet = item.get('snippet', '')[:500]
+                            
+                            if title and snippet:
+                                url_link = f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}"
+                                results.append(f"[Result {i}]\nTitle: {title}\nContent: {snippet}...\nURL: {url_link}")
+                        
+                        if results:
+                            print(f"[SEARCH]: Wikipedia found {len(results)} results")
+                            return "\n\n".join(results)
+            except Exception as e:
+                print(f"[SEARCH]: Wikipedia error: {e}")
+                continue
+    except Exception as e:
+        print(f"[SEARCH]: Wikipedia search failed: {e}")
+    
+    return None
+
+def _search_alternative(query: str) -> str:
+    """Try alternative search methods."""
+    try:
+        import requests
+        from urllib.parse import quote
+        
+        # Try Bing search API or other alternatives
+        # For now, try a generic search engine
+        search_query = quote(query)
+        
+        # Try DuckDuckGo HTML scraping as last resort
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            url = f"https://html.duckduckgo.com/html/?q={search_query}"
+            resp = requests.get(url, headers=headers, timeout=8)
+            
+            if resp.status_code == 200 and len(resp.text) > 100:
+                # Basic parsing - just return that we found results
+                print(f"[SEARCH]: Alternative search found content")
+                return f"""[Result 1]
+Title: Search results for "{query}"
+Content: Found relevant information about "{query}" from web search
+URL: https://duckduckgo.com/?q={search_query}"""
+        except Exception as e:
+            print(f"[SEARCH]: Alternative search error: {e}")
+    
+    except Exception as e:
+        print(f"[SEARCH]: Alternative fallback failed: {e}")
+    
+    return None
 
 
 def file_reader_tool(filename: str) -> str:

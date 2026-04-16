@@ -2,35 +2,20 @@
 Researcher Agent
 ----------------
 Listens for TASK_ASSIGNED messages from PlannerAgent,
-calls the MCP web_search_tool, stores findings in shared_memory,
+calls the MCP web_search_tool directly, stores findings in shared_memory,
 then notifies ExecutorAgent when all research is done.
 """
 
-import requests
-from a2a.agent_communicator import COMMUNICATOR
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-MCP_SERVER_URL = "http://localhost:8001/call-tool"
+from a2a.agent_communicator import COMMUNICATOR
+from mcp.mcp_tools import web_search_tool
 
 
 class ResearcherAgent:
     def __init__(self):
         self.name = "ResearcherAgent"
-
-    # ── MCP tool call ────────────────────────────────────────────────────────
-
-    def _call_web_search(self, query: str) -> str:
-        """Call web_search_tool on the MCP server via HTTP POST."""
-        print(f"[RESEARCHER]: Calling MCP tool: web_search_tool")
-        try:
-            response = requests.post(
-                MCP_SERVER_URL,
-                json={"tool_name": "web_search_tool", "params": {"query": query}},
-                timeout=10,
-            )
-            response.raise_for_status()
-            return response.json().get("result", "No result returned.")
-        except Exception as e:
-            return f"[MCP ERROR]: {str(e)}"
 
     # ── Main entry point ─────────────────────────────────────────────────────
 
@@ -58,7 +43,8 @@ class ResearcherAgent:
             task = message["content"]
             print(f"[RESEARCHER]: Received task: {task}")
 
-            finding = self._call_web_search(task)
+            # Call tool directly
+            finding = web_search_tool(task)
             research_results[task] = finding
 
             print(f"[RESEARCHER]: Research complete for task: {task}")
@@ -77,17 +63,3 @@ class ResearcherAgent:
 
         return research_results
 
-
-if __name__ == "__main__":
-    # Quick smoke-test (requires MCP server running on port 8001)
-    from agents.planner_agent import PlannerAgent
-
-    goal = "Research the benefits of multi-agent AI systems"
-    PlannerAgent().run(goal)
-
-    agent = ResearcherAgent()
-    results = agent.run()
-
-    print("\n=== Research Results ===")
-    for task, finding in results.items():
-        print(f"\nTask: {task}\nFinding: {finding[:200]}...")

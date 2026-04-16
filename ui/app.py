@@ -1,6 +1,5 @@
-"""
-ui/app.py — Philips Multi-Agent Workflow System
-------------------------------------------------
+"""ui/app.py - Multi-Agent Research Workflow System
+----------------------------------------------
 Run with:
     streamlit run ui/app.py
 """
@@ -21,7 +20,7 @@ import streamlit as st
 
 # ── Page config (MUST be first Streamlit call) ────────────────────────────────
 st.set_page_config(
-    page_title="Philips Multi-Agent Workflow",
+    page_title="Research Agent Workflow",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -33,6 +32,7 @@ from mcp.mcp_tools import TOOL_REGISTRY
 from agents.planner_agent import PlannerAgent
 from agents.researcher_agent import ResearcherAgent
 from agents.executor_agent import ExecutorAgent
+from chat_with_report import chat_with_report
 
 
 # ── Global CSS ────────────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ if not st.session_state.mcp_started:
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🤖 Philips Agent Workflow")
+    st.markdown("## 🤖 Research Agent Workflow")
     st.markdown("---")
 
     # Agent status
@@ -220,42 +220,22 @@ with st.sidebar:
         cls   = badge_class[state]
         label = state.upper()
         st.markdown(
-            f'<span class="badge {cls}">{icon} {agent} — {label}</span>',
+            f'<span class="badge {cls}">{icon} {agent} - {label}</span>',
             unsafe_allow_html=True,
         )
 
     st.markdown("---")
-
-    # MCP tools
-    st.markdown("### 🛠️ MCP Tools Available")
-    for tool_name in TOOL_REGISTRY:
-        st.markdown(f'<span class="tool-chip">⚙️ {tool_name}</span>', unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # A2A message bus
-    msg_count = len(COMMUNICATOR.message_bus)
-    st.markdown("### 📡 A2A Message Bus")
-    st.markdown(
-        f'<div class="metric-card">'
-        f'<div class="metric-value">{msg_count}</div>'
-        f'<div class="metric-label">Messages on bus</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("---")
     st.markdown(
         '<div style="font-size:0.72rem;color:#4d6a99;text-align:center;">'
-        'Philips Agent Workflow v0.1.0<br>A2A + MCP Protocols'
+        'Research Agent Workflow<br>Powered by AI'
         '</div>',
         unsafe_allow_html=True,
     )
 
 
 # ── Hero header ───────────────────────────────────────────────────────────────
-st.markdown('<div class="hero-title">🤖 Philips Multi-Agent Workflow System</div>', unsafe_allow_html=True)
-st.markdown('<div class="hero-sub">Powered by A2A + MCP Protocols</div>', unsafe_allow_html=True)
+st.markdown('<div class="hero-title">🤖 Multi-Agent Research Workflow</div>', unsafe_allow_html=True)
+st.markdown('<div class="hero-sub">Powered by Intelligent Multi-Agent System</div>', unsafe_allow_html=True)
 st.markdown("---")
 
 
@@ -287,6 +267,7 @@ if run_clicked:
             "ResearcherAgent": "idle",
             "ExecutorAgent":   "idle",
         }
+        st.session_state.chat_history = []  # Clear previous chat history
 
         log_buffer = io.StringIO()
 
@@ -323,39 +304,8 @@ if run_clicked:
 if st.session_state.workflow_ran:
     st.markdown("---")
 
-    # Metrics row
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.markdown(
-            f'<div class="metric-card">'
-            f'<div class="metric-value">✅ {st.session_state.tasks_completed}</div>'
-            f'<div class="metric-label">Tasks Completed</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    with m2:
-        bus_total = len(COMMUNICATOR.message_bus)
-        st.markdown(
-            f'<div class="metric-card">'
-            f'<div class="metric-value">📡 {bus_total}</div>'
-            f'<div class="metric-label">A2A Messages Sent</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    with m3:
-        tool_calls = st.session_state.captured_log.count("[MCP TOOL CALLED]")
-        st.markdown(
-            f'<div class="metric-card">'
-            f'<div class="metric-value">🛠️ {tool_calls}</div>'
-            f'<div class="metric-label">MCP Tool Calls</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Log panel + Report in tabs
-    tab_log, tab_report = st.tabs(["📋 Agent Activity Log", "📄 Final Report"])
+    # Log panel + Report + Chat in tabs
+    tab_log, tab_report, tab_chat = st.tabs(["📋 Agent Activity Log", "📄 Final Report", "💬 Chat with Report"])
 
     with tab_log:
         st.markdown("#### Live Agent Log")
@@ -380,3 +330,37 @@ if st.session_state.workflow_ran:
             )
         else:
             st.info("No report generated yet.")
+
+    with tab_chat:
+        st.markdown("#### Ask Questions About the Report")
+        if st.session_state.final_report:
+            # Chat interface
+            if "chat_history" not in st.session_state:
+                st.session_state.chat_history = []
+            
+            # Display chat history
+            for chat_item in st.session_state.chat_history:
+                with st.chat_message(chat_item["role"]):
+                    st.markdown(chat_item["content"])
+            
+            # Chat input
+            user_question = st.chat_input("Ask a question about the report...")
+            
+            if user_question:
+                # Display user message
+                with st.chat_message("user"):
+                    st.markdown(user_question)
+                st.session_state.chat_history.append({"role": "user", "content": user_question})
+                
+                # Get AI response
+                with st.spinner("🤔 Thinking..."):
+                    answer = chat_with_report(st.session_state.final_report, user_question)
+                
+                # Display assistant message
+                with st.chat_message("assistant"):
+                    st.markdown(answer)
+                st.session_state.chat_history.append({"role": "assistant", "content": answer})
+                
+                st.rerun()
+        else:
+            st.info("📄 Generate a report first to start chatting about its content.")
